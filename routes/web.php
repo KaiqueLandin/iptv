@@ -55,6 +55,10 @@ Route::prefix('api/admin/analytics')
         Route::get('products', [AnalyticsController::class, 'products'])->name('products');
     });
 
+// Admin routes must be registered before the team dashboard wildcard,
+// otherwise "/admin/dashboard" is matched as "{current_team}=admin".
+require __DIR__.'/admin.php';
+
 Route::prefix('{current_team}')
     ->middleware(['auth', 'verified', EnsureTeamMembership::class])
     ->group(function () {
@@ -93,4 +97,3 @@ Route::middleware(['auth', 'verified'])->group(function () {
 });
 
 require __DIR__.'/settings.php';
-require __DIR__.'/admin.php';
