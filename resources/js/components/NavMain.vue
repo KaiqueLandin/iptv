@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { Link } from '@inertiajs/vue3';
+import type { LucideIcon } from '@lucide/vue';
 import {
     SidebarGroup,
     SidebarGroupLabel,
@@ -10,16 +11,26 @@ import {
 import { useCurrentUrl } from '@/composables/useCurrentUrl';
 import type { NavItem } from '@/types';
 
-defineProps<{
-    items: NavItem[];
-}>();
+withDefaults(
+    defineProps<{
+        items: NavItem[];
+        label?: string;
+        icon?: LucideIcon;
+    }>(),
+    {
+        label: 'Platform',
+    },
+);
 
 const { isCurrentUrl } = useCurrentUrl();
 </script>
 
 <template>
     <SidebarGroup class="px-2 py-0">
-        <SidebarGroupLabel>Platform</SidebarGroupLabel>
+        <SidebarGroupLabel class="flex items-center gap-1.5">
+            <component :is="icon" v-if="icon" class="size-3.5" />
+            {{ label }}
+        </SidebarGroupLabel>
         <SidebarMenu>
             <SidebarMenuItem v-for="item in items" :key="item.title">
                 <SidebarMenuButton

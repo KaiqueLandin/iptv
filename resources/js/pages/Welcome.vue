@@ -3,7 +3,6 @@ import { Head, Link, usePage } from '@inertiajs/vue3';
 import {
     ArrowRight,
     BadgeCheck,
-    Check,
     CheckCircle2,
     ChevronDown,
     CircleDollarSign,
@@ -11,7 +10,9 @@ import {
     CreditCard,
     Headphones,
     Infinity,
+    Info,
     Laptop,
+    LifeBuoy,
     LockKeyhole,
     Menu,
     MessageCircle,
@@ -22,6 +23,7 @@ import {
     ShieldCheck,
     ShoppingCart,
     Smartphone,
+    Sparkles,
     Star,
     Tablet,
     Tv,
@@ -29,15 +31,50 @@ import {
     X,
     Zap,
 } from '@lucide/vue';
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { dashboard, login, register } from '@/routes';
 
-const page = usePage();
+interface WelcomePageProps {
+    plans?: CatalogPlan[];
+    brands?: CatalogBrand[];
+    [key: string]: unknown;
+}
+
+const page = usePage<WelcomePageProps>();
 const isMenuOpen = ref(false);
 const selectedMediaId = ref('movies');
 const isMediaPaused = ref(false);
 let mediaRotationTimer: ReturnType<typeof setInterval> | undefined;
 let revealObserver: IntersectionObserver | undefined;
+
+type PlanSort = 'default' | 'price-asc' | 'price-desc' | 'credits-desc';
+
+type PlanTone = 'rose' | 'violet' | 'indigo' | 'emerald';
+
+interface CatalogPlan {
+    id: number;
+    name: string;
+    credits: number;
+    price: string;
+    description?: string;
+    checkoutUrl: string;
+    popular?: boolean;
+}
+
+interface CatalogBrand {
+    id: number;
+    name: string;
+    logo_url: string | null;
+    website_url: string | null;
+}
+
+interface DisplayPlan extends CatalogPlan {
+    badge: string | null;
+    note: string;
+    posterLabel: string;
+    posterSubtitle: string;
+    tone: PlanTone;
+}
 
 const dashboardUrl = computed(() =>
     page.props.currentTeam ? dashboard(page.props.currentTeam.slug).url : '/',
@@ -125,33 +162,147 @@ const devices = [
     { label: 'Notebook', icon: Laptop },
 ];
 
-const plans = [
+const fallbackPlans: CatalogPlan[] = [
     {
+        id: 0,
         name: 'Básico',
         credits: 10,
         price: '29,90',
         description: 'Para compras pontuais e primeiros acessos.',
+        checkoutUrl: '#',
     },
     {
+        id: 0,
         name: 'Popular',
         credits: 25,
         price: '59,90',
         description: 'O melhor equilíbrio entre preço e quantidade.',
         popular: true,
+        checkoutUrl: '#',
     },
     {
+        id: 0,
         name: 'Plus',
         credits: 50,
         price: '99,90',
         description: 'Mais créditos com uma economia ainda maior.',
+        checkoutUrl: '#',
     },
     {
+        id: 0,
         name: 'Premium',
         credits: 100,
         price: '169,90',
         description: 'Máxima liberdade e o menor custo por crédito.',
+        checkoutUrl: '#',
     },
 ];
+
+const serverPlans = computed<CatalogPlan[]>(() => {
+    const incoming = page.props.plans;
+
+    if (!Array.isArray(incoming)) {
+        return [];
+    }
+
+    return incoming.map((plan, index) => ({
+        id: Number(plan.id) || index + 1,
+        name: String(plan.name ?? 'Plano'),
+        credits: Number(plan.credits) || 0,
+        price: String(plan.price ?? '0,00'),
+        description: plan.description ? String(plan.description) : undefined,
+        checkoutUrl: String(plan.checkoutUrl ?? '#'),
+        popular: Boolean(plan.popular),
+    }));
+});
+
+const plans = ref<CatalogPlan[]>(
+    serverPlans.value.length ? serverPlans.value : fallbackPlans,
+);
+
+const planSort = ref<PlanSort>('default');
+
+const isLoadingPlans = ref(false);
+
+const planSortOptions: Array<{ label: string; value: PlanSort }> = [
+    { label: 'Ordenação padrão', value: 'default' },
+    { label: 'Menor preço', value: 'price-asc' },
+    { label: 'Maior preço', value: 'price-desc' },
+    { label: 'Mais créditos', value: 'credits-desc' },
+];
+
+const cardTones: PlanTone[] = ['rose', 'violet', 'indigo', 'emerald'];
+
+const parsePrice = (price: string) =>
+    Number.parseFloat(price.replace(/\./g, '').replace(',', '.')) || 0;
+
+const sortPlans = (items: CatalogPlan[]) => {
+    const sorted = [...items];
+
+    switch (planSort.value) {
+        case 'price-asc':
+            return sorted.sort((a, b) => parsePrice(a.price) - parsePrice(b.price));
+        case 'price-desc':
+            return sorted.sort((a, b) => parsePrice(b.price) - parsePrice(a.price));
+        case 'credits-desc':
+            return sorted.sort((a, b) => b.credits - a.credits);
+        default:
+            return sorted;
+    }
+};
+
+const displayPlans = computed<DisplayPlan[]>(() => {
+    const orderedPlans = sortPlans(plans.value);
+
+    return orderedPlans.map((plan, index) => {
+        const isPopular =
+            plan.popular || plan.name.toLowerCase().includes('popular');
+        const badge =
+            isPopular
+                ? 'Mais escolhido'
+                : index === 0
+                  ? 'Oferta'
+                  : index === orderedPlans.length - 1
+                    ? 'Premium'
+                    : null;
+
+        const note =
+            plan.credits >= 50
+                ? 'Melhor custo por crédito.'
+                : 'Ativação guiada pelo suporte.';
+
+        return {
+            ...plan,
+            badge,
+            note,
+            posterLabel: `${plan.credits} créditos`,
+            posterSubtitle: plan.name,
+            tone: cardTones[index % cardTones.length],
+        };
+    });
+});
+
+const brands = computed<CatalogBrand[]>(() => {
+    const incoming = page.props.brands;
+
+    if (!Array.isArray(incoming)) {
+        return [];
+    }
+
+    return incoming
+        .map((brand) => ({
+            id: Number(brand.id),
+            name: String(brand.name ?? ''),
+            logo_url: brand.logo_url ? String(brand.logo_url) : null,
+            website_url: brand.website_url ? String(brand.website_url) : null,
+        }))
+        .filter((brand) => brand.name !== '');
+});
+
+// Duplicate the brand list so the marquee carousel can loop seamlessly.
+const brandTrack = computed<CatalogBrand[]>(() =>
+    brands.value.length ? [...brands.value, ...brands.value] : [],
+);
 
 const planBenefits = [
     'Recarga imediata',
@@ -289,7 +440,48 @@ const closeMenu = () => {
     isMenuOpen.value = false;
 };
 
+const fetchPlans = async () => {
+    try {
+        isLoadingPlans.value = true;
+        const response = await fetch('/api/products');
+        const data = await response.json();
+
+        if (data.success && Array.isArray(data.data) && data.data.length > 0) {
+            plans.value = data.data.map((product: any, index: number) => ({
+                id: Number(product.id) || index + 1,
+                name: String(product.name ?? 'Plano'),
+                credits: Number(product.credits) || 0,
+                price: String(product.price ?? '0,00'),
+                description: product.description
+                    ? String(product.description)
+                    : plans.value[index]?.description || '',
+                checkoutUrl: String(product.checkoutUrl ?? '#'),
+            }));
+        }
+    } catch (error) {
+        console.error('Failed to load plans from API, using fallback', error);
+    } finally {
+        isLoadingPlans.value = false;
+    }
+};
+
+watch(
+    serverPlans,
+    (next) => {
+        if (next.length) {
+            plans.value = next;
+        }
+    },
+    { deep: true },
+);
+
 onMounted(() => {
+    // The server (HomeController) already provides native products. Only hit
+    // the API as a fallback when no plans were rendered server-side.
+    if (!serverPlans.value.length) {
+        fetchPlans();
+    }
+
     startMediaRotation();
 
     revealObserver = new IntersectionObserver(
@@ -319,7 +511,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-    <Head title="Nexo Play — Créditos IPTV">
+    <Head title="ClickTV — Créditos IPTV">
         <meta
             name="description"
             content="Compre créditos IPTV com recarga imediata, pagamento seguro e suporte especializado."
@@ -329,11 +521,11 @@ onBeforeUnmount(() => {
     <div class="landing-page">
         <header class="site-header">
             <div class="header-inner container">
-                <a href="#inicio" class="brand" aria-label="Nexo Play - Início">
+                <a href="#inicio" class="brand" aria-label="ClickTV - Início">
                     <span class="brand-mark"
                         ><Play :size="17" fill="currentColor"
                     /></span>
-                    <span>NEXO<span>PLAY</span></span>
+                    <span>CLICK<span>TV</span></span>
                 </a>
 
                 <nav class="desktop-nav" aria-label="Navegação principal">
@@ -445,6 +637,15 @@ onBeforeUnmount(() => {
                             </a>
                         </div>
 
+                        <div class="hero-alert" role="note" aria-label="Aviso importante">
+                            <span class="hero-alert-icon">
+                                <Info :size="17" />
+                            </span>
+                            <p>
+                                <strong>Atenção:</strong> Somos apenas revendedores de recargas/códigos. Para suporte no app, use a opção <strong>Suporte</strong> dentro do próprio aplicativo.
+                            </p>
+                        </div>
+
                         <div class="hero-benefits">
                             <article
                                 v-for="item in heroBenefits"
@@ -501,7 +702,7 @@ onBeforeUnmount(() => {
                                                 :size="9"
                                                 fill="currentColor"
                                         /></span>
-                                        NEXO PLAY
+                                        CLICKTV
                                     </div>
                                     <div class="live-pill">
                                         <span></span> AO VIVO
@@ -586,6 +787,153 @@ onBeforeUnmount(() => {
                 </div>
             </section>
 
+            <section id="planos" class="section showcase-section">
+                <div class="container">
+                    <div class="plans-toolbar" data-reveal>
+                        <div class="plans-heading">
+                            <div class="eyebrow eyebrow-blue">
+                                <Sparkles :size="15" />
+                                Planos em destaque
+                            </div>
+                            <h2>Escolha o pacote ideal para sua recarga</h2>
+                            <p>
+                                Cards mais visuais, com compra rápida e leitura
+                                imediata do preço.
+                            </p>
+                        </div>
+
+                        <div class="plans-sort">
+                            <label class="sr-only" for="plan-sort">
+                                Ordenação dos planos
+                            </label>
+                            <div class="plans-sort-field">
+                                <select id="plan-sort" v-model="planSort">
+                                    <option
+                                        v-for="option in planSortOptions"
+                                        :key="option.value"
+                                        :value="option.value"
+                                    >
+                                        {{ option.label }}
+                                    </option>
+                                </select>
+                                <ChevronDown :size="16" />
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="plans-benefits" data-reveal>
+                        <span
+                            v-for="benefit in planBenefits"
+                            :key="benefit"
+                        >
+                            <BadgeCheck :size="14" />
+                            {{ benefit }}
+                        </span>
+                    </div>
+
+                    <div v-if="displayPlans.length" class="plans-grid">
+                        <article
+                            v-for="plan in displayPlans"
+                            :key="`${plan.id}-${plan.name}`"
+                            class="plan-card"
+                            :class="`tone-${plan.tone}`"
+                            data-reveal
+                        >
+                            <div class="plan-art-wrap">
+                                <div class="plan-art">
+                                    <span class="plan-art-notch"></span>
+                                    <div class="plan-art-watermark">
+                                        <Play :size="92" fill="currentColor" />
+                                    </div>
+                                    <div class="plan-art-copy">
+                                        <strong>{{ plan.posterLabel }}</strong>
+                                        <span class="plan-art-eyebrow"
+                                            >GIFT CARD</span
+                                        >
+                                        <small>{{ plan.posterSubtitle }}</small>
+                                    </div>
+                                    <div class="plan-art-card">
+                                        <div class="plan-art-panel">
+                                            <div class="plan-art-logo">
+                                                <Play
+                                                    :size="34"
+                                                    fill="currentColor"
+                                                />
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="plan-body">
+                                <div class="plan-meta">
+                                    <div class="plan-meta-row">
+                                        <span class="plan-store-label">Loja oficial</span>
+
+                                        <span
+                                            v-if="plan.badge"
+                                            class="plan-status-chip"
+                                            :class="{
+                                                'is-offer': plan.badge === 'Oferta',
+                                            }"
+                                        >
+                                            <span class="plan-status-icon">
+                                                <Star :size="11" fill="currentColor" />
+                                            </span>
+                                            {{ plan.badge }}
+                                        </span>
+                                    </div>
+                                    <h3>
+                                        {{ plan.name }} · {{ plan.credits }}
+                                        créditos
+                                    </h3>
+                                </div>
+                                <p class="plan-description">
+                                    {{
+                                        plan.description ||
+                                        'Recarga segura com liberação rápida após a confirmação.'
+                                    }}
+                                </p>
+                                <div class="plan-price">
+                                    <span>R$</span>
+                                    <strong>{{ plan.price }}</strong>
+                                    <small>pagamento único</small>
+                                </div>
+                                <div class="plan-actions">
+                                    <Link
+                                        v-if="plan.id > 0"
+                                        :href="plan.checkoutUrl"
+                                        class="button plan-button"
+                                    >
+                                        Comprar
+                                    </Link>
+                                    <Link
+                                        v-else
+                                        :href="register()"
+                                        class="button plan-button"
+                                    >
+                                        Comprar
+                                    </Link>
+                                </div>
+                                <p class="plan-note">
+                                    <span><Info :size="13" /></span>
+                                    {{ plan.note }}
+                                </p>
+                            </div>
+                        </article>
+                    </div>
+
+                    <div v-else class="plans-empty" data-reveal>
+                        <Info :size="24" />
+                        <h3>Nenhum pacote disponível no momento</h3>
+                        <p>
+                            Verifique o catálogo ou tente recarregar a lista de
+                            produtos.
+                        </p>
+                    </div>
+                </div>
+            </section>
+
             <section class="compatibility">
                 <div class="compatibility-inner container" data-reveal>
                     <p>Compatível com seus dispositivos favoritos</p>
@@ -594,6 +942,49 @@ onBeforeUnmount(() => {
                             <component :is="device.icon" :size="19" />
                             {{ device.label }}
                         </span>
+                    </div>
+                </div>
+            </section>
+
+            <section v-if="brands.length" class="brands-section">
+                <div class="container">
+                    <div class="brands-heading" data-reveal>
+                        <div class="eyebrow eyebrow-blue">
+                            <Sparkles :size="15" />
+                            Marcas parceiras
+                        </div>
+                        <h2>As principais marcas em um só lugar</h2>
+                        <p>
+                            Conteúdos e aplicativos das marcas mais reconhecidas do
+                            mercado.
+                        </p>
+                    </div>
+
+                    <div class="brands-marquee" data-reveal>
+                        <div
+                            class="brands-track"
+                            :style="{ '--brand-count': brands.length }"
+                        >
+                            <component
+                                :is="brand.website_url ? 'a' : 'div'"
+                                v-for="(brand, index) in brandTrack"
+                                :key="`${brand.id}-${index}`"
+                                class="brand-item"
+                                :href="brand.website_url ?? undefined"
+                                :target="brand.website_url ? '_blank' : undefined"
+                                :rel="brand.website_url ? 'noopener noreferrer' : undefined"
+                                :title="brand.name"
+                                :aria-hidden="index >= brands.length ? 'true' : undefined"
+                            >
+                                <img
+                                    v-if="brand.logo_url"
+                                    :src="brand.logo_url"
+                                    :alt="brand.name"
+                                    loading="lazy"
+                                />
+                                <span v-else class="brand-name">{{ brand.name }}</span>
+                            </component>
+                        </div>
                     </div>
                 </div>
             </section>
@@ -654,7 +1045,8 @@ onBeforeUnmount(() => {
                 </div>
             </section>
 
-            <section id="planos" class="section">
+            <!-- Legacy plan section kept for reference
+            <section id="planos" v-if="false" class="section showcase-section">
                 <div class="container">
                     <div class="section-heading" data-reveal>
                         <div class="eyebrow eyebrow-green">
@@ -705,6 +1097,19 @@ onBeforeUnmount(() => {
                                 </li>
                             </ul>
                             <Link
+                                v-if="plan.id > 0"
+                                :href="plan.checkoutUrl"
+                                class="button plan-button"
+                                :class="
+                                    plan.popular
+                                        ? 'button-blue'
+                                        : 'button-primary'
+                                "
+                            >
+                                Comprar agora <ArrowRight :size="17" />
+                            </Link>
+                            <Link
+                                v-else
                                 :href="register()"
                                 class="button plan-button"
                                 :class="
@@ -719,6 +1124,7 @@ onBeforeUnmount(() => {
                     </div>
                 </div>
             </section>
+            -->
 
             <section class="payment-section">
                 <div class="payment-card container" data-reveal>
@@ -749,7 +1155,7 @@ onBeforeUnmount(() => {
                         <div class="eyebrow eyebrow-blue">
                             Mais tranquilidade
                         </div>
-                        <h2>Por que escolher a Nexo Play?</h2>
+                        <h2>Por que escolher a ClickTV?</h2>
                         <p>
                             Tudo foi pensado para uma compra rápida, clara e
                             confiável.
@@ -793,7 +1199,7 @@ onBeforeUnmount(() => {
                                     <th>Recursos</th>
                                     <th>
                                         <span class="table-brand-mark">N</span>
-                                        Nexo Play
+                                        ClickTV
                                     </th>
                                     <th>Outros serviços</th>
                                 </tr>
@@ -893,6 +1299,16 @@ onBeforeUnmount(() => {
                             >
                                 <MessageCircle :size="18" /> Abrir WhatsApp
                             </a>
+                            <Link
+                                :href="
+                                    $page.props.auth.user
+                                        ? '/tickets'
+                                        : login().url
+                                "
+                                class="button button-outline"
+                            >
+                                <LifeBuoy :size="18" /> Abrir ticket de suporte
+                            </Link>
                             <small
                                 ><Clock3 :size="14" /> Atendimento todos os
                                 dias</small
@@ -910,7 +1326,7 @@ onBeforeUnmount(() => {
                         <span class="brand-mark"
                             ><Play :size="17" fill="currentColor"
                         /></span>
-                        <span>NEXO<span>PLAY</span></span>
+                        <span>CLICK<span>TV</span></span>
                     </a>
                     <p>
                         Créditos IPTV com compra simples, entrega rápida e
@@ -937,8 +1353,8 @@ onBeforeUnmount(() => {
                 <div>
                     <h3>Suporte</h3>
                     <a href="https://wa.me/5500000000000">WhatsApp</a>
-                    <a href="mailto:suporte@nexoplay.com"
-                        >suporte@nexoplay.com</a
+                    <a href="mailto:suporte@clicktv.com"
+                        >suporte@clicktv.com</a
                     >
                     <p>Todos os dias, das 8h às 22h</p>
                 </div>
@@ -951,7 +1367,7 @@ onBeforeUnmount(() => {
                 </div>
             </div>
             <div class="footer-bottom container">
-                <span>© 2026 Nexo Play. Todos os direitos reservados.</span>
+                <span>© 2026 ClickTV. Todos os direitos reservados.</span>
                 <a
                     href="https://unsplash.com"
                     target="_blank"
@@ -1236,6 +1652,43 @@ summary:focus-visible {
 .hero-actions {
     flex-wrap: wrap;
     margin-top: 30px;
+}
+
+.hero-alert {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    max-width: 620px;
+    margin-top: 22px;
+    border: 1px solid rgba(245, 158, 11, 0.32);
+    border-radius: 16px;
+    background: linear-gradient(135deg, rgba(255, 251, 235, 0.96), rgba(239, 246, 255, 0.9));
+    padding: 14px 16px;
+    box-shadow: 0 14px 32px rgba(15, 23, 42, 0.07);
+    color: #334155;
+}
+
+.hero-alert-icon {
+    display: grid;
+    width: 34px;
+    height: 34px;
+    flex: 0 0 auto;
+    place-items: center;
+    border-radius: 11px;
+    background: rgba(245, 158, 11, 0.12);
+    color: #d97706;
+}
+
+.hero-alert p {
+    margin: 0;
+    font-size: 13px;
+    font-weight: 500;
+    line-height: 1.55;
+}
+
+.hero-alert strong {
+    color: #0f172a;
+    font-weight: 800;
 }
 
 .hero-benefits {
@@ -1781,6 +2234,111 @@ summary:focus-visible {
     color: #2563eb;
 }
 
+.brands-section {
+    padding: 80px 0;
+    background: white;
+    border-bottom: 1px solid #e9eef5;
+    overflow: hidden;
+}
+
+.brands-heading {
+    max-width: 640px;
+    margin: 0 auto 44px;
+    text-align: center;
+}
+
+.brands-heading h2 {
+    margin: 14px 0 10px;
+    font-size: clamp(24px, 3vw, 32px);
+    font-weight: 700;
+    color: #0f172a;
+}
+
+.brands-heading p {
+    color: #475569;
+    font-size: 15px;
+}
+
+.brands-marquee {
+    position: relative;
+    width: 100%;
+    overflow: hidden;
+    -webkit-mask-image: linear-gradient(
+        90deg,
+        transparent,
+        #000 12%,
+        #000 88%,
+        transparent
+    );
+    mask-image: linear-gradient(
+        90deg,
+        transparent,
+        #000 12%,
+        #000 88%,
+        transparent
+    );
+}
+
+.brands-track {
+    display: flex;
+    width: max-content;
+    align-items: center;
+    gap: 56px;
+    animation: brands-scroll calc(var(--brand-count, 6) * 4s) linear infinite;
+}
+
+.brands-marquee:hover .brands-track {
+    animation-play-state: paused;
+}
+
+.brand-item {
+    display: inline-flex;
+    height: 56px;
+    min-width: 120px;
+    align-items: center;
+    justify-content: center;
+    filter: grayscale(1);
+    opacity: 0.7;
+    transition:
+        filter 0.25s ease,
+        opacity 0.25s ease;
+}
+
+.brand-item:hover {
+    filter: grayscale(0);
+    opacity: 1;
+}
+
+.brand-item img {
+    max-height: 56px;
+    max-width: 150px;
+    object-fit: contain;
+}
+
+.brand-item .brand-name {
+    font-size: 18px;
+    font-weight: 700;
+    color: #334155;
+    white-space: nowrap;
+}
+
+@keyframes brands-scroll {
+    from {
+        transform: translateX(0);
+    }
+    to {
+        transform: translateX(-50%);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .brands-track {
+        animation: none;
+        flex-wrap: wrap;
+        justify-content: center;
+    }
+}
+
 .section {
     padding: 96px 0;
 }
@@ -1886,154 +2444,523 @@ summary:focus-visible {
     line-height: 1.65;
 }
 
+.showcase-section {
+    position: relative;
+    overflow: hidden;
+    border-block: 1px solid #e9eef5;
+    background:
+        radial-gradient(
+            circle at 88% 18%,
+            rgba(37, 99, 235, 0.08),
+            transparent 24rem
+        ),
+        radial-gradient(
+            circle at 12% 22%,
+            rgba(16, 185, 129, 0.08),
+            transparent 22rem
+        ),
+        linear-gradient(180deg, #f8fbff 0%, #ffffff 54%, #f8fafc 100%);
+    color: #0f172a;
+}
+
+.showcase-section::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-image:
+        linear-gradient(rgba(148, 163, 184, 0.08) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(148, 163, 184, 0.08) 1px, transparent 1px);
+    background-position: center;
+    background-size: 56px 56px;
+    opacity: 0.5;
+    pointer-events: none;
+}
+
+.showcase-section .container {
+    position: relative;
+    z-index: 1;
+}
+
+.plans-toolbar {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 24px;
+    margin-bottom: 18px;
+}
+
+.plans-heading {
+    max-width: 640px;
+}
+
+.plans-heading h2 {
+    margin: 16px 0 10px;
+    font-size: clamp(2rem, 3.6vw, 2.85rem);
+    font-weight: 800;
+    letter-spacing: -0.05em;
+    line-height: 1.02;
+}
+
+.plans-heading p {
+    color: #475569;
+    font-size: 15px;
+    line-height: 1.65;
+}
+
+.plans-sort {
+    flex: 0 0 auto;
+    align-self: flex-start;
+}
+
+.plans-sort-field {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 340px;
+    border: 1px solid #d7dee8;
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.96);
+    padding: 0 12px 0 16px;
+    box-shadow: 0 14px 32px rgba(15, 23, 42, 0.08);
+    color: #0f172a;
+}
+
+.plans-sort-field select {
+    width: 100%;
+    border: 0;
+    background: transparent;
+    padding: 13px 0;
+    color: inherit;
+    font-size: 14px;
+    font-weight: 600;
+    outline: none;
+    appearance: none;
+}
+
+.plans-sort-field svg {
+    flex: 0 0 auto;
+    color: #0f172a;
+}
+
+.plans-benefits {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-bottom: 26px;
+}
+
+.plans-benefits span {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    border: 1px solid #dbe5f0;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.88);
+    padding: 9px 14px;
+    color: #334155;
+    font-size: 12px;
+    font-weight: 600;
+    box-shadow: 0 10px 24px rgba(15, 23, 42, 0.04);
+}
+
+.plans-benefits span svg {
+    color: #34d399;
+}
+
 .plans-grid {
-    grid-template-columns: repeat(4, 1fr);
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     align-items: stretch;
 }
 
 .plan-card {
     position: relative;
     display: flex;
-    min-height: 510px;
+    min-height: 100%;
     flex-direction: column;
-    border: 1px solid #e2e8f0;
+    gap: 18px;
+    border: 1px solid #dbe5f0;
     border-radius: 20px;
-    background: white;
-    padding: 28px;
-    box-shadow: 0 6px 24px rgba(15, 23, 42, 0.05);
+    background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+    padding: 18px;
+    box-shadow: 0 18px 40px rgba(15, 23, 42, 0.08);
     transition:
         transform 0.25s ease,
-        box-shadow 0.25s ease;
+        box-shadow 0.25s ease,
+        border-color 0.25s ease;
 }
 
 .plan-card:hover {
-    box-shadow: 0 18px 42px rgba(15, 23, 42, 0.1);
-    transform: translateY(-5px);
+    border-color: #bfdbfe;
+    box-shadow: 0 24px 50px rgba(37, 99, 235, 0.12);
+    transform: translateY(-6px);
 }
 
-.plan-card.popular {
-    border: 2px solid #2563eb;
-    box-shadow:
-        0 18px 45px rgba(37, 99, 235, 0.12),
-        0 0 0 6px rgba(37, 99, 235, 0.035);
-    transform: translateY(-10px);
+.plan-card.tone-rose {
+    --plan-start: #2563eb;
+    --plan-mid: #38bdf8;
+    --plan-end: #14b8a6;
 }
 
-.plan-card.popular:hover {
-    transform: translateY(-15px);
+.plan-card.tone-violet {
+    --plan-start: #1d4ed8;
+    --plan-mid: #3b82f6;
+    --plan-end: #22c55e;
 }
 
-.popular-badge {
-    position: absolute;
-    top: -14px;
-    left: 50%;
+.plan-card.tone-indigo {
+    --plan-start: #0f766e;
+    --plan-mid: #06b6d4;
+    --plan-end: #2563eb;
+}
+
+.plan-card.tone-emerald {
+    --plan-start: #0284c7;
+    --plan-mid: #0ea5e9;
+    --plan-end: #10b981;
+}
+
+.plan-art-wrap {
+    position: relative;
+    margin: -2px -8px 0;
+    padding-top: 4px;
+}
+
+.plan-meta-row {
     display: flex;
+    min-height: 28px;
     align-items: center;
-    gap: 6px;
-    border-radius: 999px;
-    background: #2563eb;
-    padding: 7px 13px;
-    color: white;
-    font-size: 10px;
-    font-weight: 800;
+    justify-content: space-between;
+    gap: 10px;
+}
+
+.plan-meta .plan-store-label {
+    color: #64748b;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
     text-transform: uppercase;
+}
+
+.plan-status-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    min-height: 24px;
+    padding: 4px 9px;
+    border: 1px solid rgba(37, 99, 235, 0.14);
+    border-radius: 999px;
+    background: linear-gradient(135deg, #ffffff 0%, #eff6ff 100%);
+    color: #1e3a8a;
+    font-size: 9px;
+    font-weight: 900;
+    letter-spacing: 0.04em;
+    line-height: 1;
+    text-transform: uppercase;
+    white-space: nowrap;
+    box-shadow: 0 8px 18px rgba(37, 99, 235, 0.08);
+}
+
+.plan-status-chip.is-offer {
+    border-color: rgba(245, 158, 11, 0.24);
+    background: linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%);
+    color: #92400e;
+    box-shadow: 0 8px 18px rgba(245, 158, 11, 0.12);
+}
+
+.plan-status-icon {
+    display: inline-grid;
+    width: 16px;
+    height: 16px;
+    flex: 0 0 auto;
+    place-items: center;
+    border-radius: 999px;
+    background: rgba(251, 191, 36, 0.2);
+    color: #d97706;
+}
+
+.plan-art {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 0.78;
+    margin-inline: auto;
+    overflow: hidden;
+    border-radius: 16px;
+    background:
+        radial-gradient(circle at 18% 16%, rgba(255, 255, 255, 0.16), transparent 25%),
+        radial-gradient(circle at 88% 22%, rgba(219, 234, 254, 0.24), transparent 31%),
+        linear-gradient(160deg, var(--plan-start) 0%, var(--plan-mid) 54%, var(--plan-end) 100%);
+    box-shadow:
+        0 18px 34px rgba(37, 99, 235, 0.2),
+        inset 0 0 0 1px rgba(255, 255, 255, 0.1);
+}
+
+.plan-art::after {
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.08), transparent 36%),
+        radial-gradient(circle at 50% 108%, rgba(15, 23, 42, 0.16), transparent 34%);
+    pointer-events: none;
+    content: '';
+}
+
+.plan-art-notch {
+    position: absolute;
+    z-index: 2;
+    top: 9px;
+    left: 50%;
+    width: 54px;
+    height: 10px;
+    border-radius: 999px;
+    background: rgba(15, 23, 42, 0.96);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
     transform: translateX(-50%);
 }
 
-.plan-topline {
+.plan-art-watermark {
+    position: absolute;
+    top: 45px;
+    right: -17px;
+    color: rgba(219, 234, 254, 0.28);
+    filter: drop-shadow(0 10px 18px rgba(15, 23, 42, 0.08));
+}
+
+.plan-art-watermark svg {
+    width: clamp(76px, 32%, 100px);
+    height: auto;
+}
+
+.plan-art-copy {
+    position: relative;
+    z-index: 1;
     display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 15px;
+    flex-direction: column;
+    align-items: center;
+    gap: 5px;
+    padding: 61px 16px 0;
+    color: white;
+    text-align: center;
 }
 
-.plan-name {
-    color: #64748b;
-    font-size: 12px;
-    font-weight: 700;
+.plan-art-copy strong {
+    font-size: clamp(24px, 2.25vw, 32px);
+    font-weight: 950;
+    letter-spacing: -0.075em;
+    line-height: 0.95;
+    text-shadow: 0 4px 18px rgba(15, 23, 42, 0.18);
 }
 
-.plan-topline h3 {
-    margin-top: 6px;
-    font-size: 23px;
-    letter-spacing: -0.04em;
+.plan-art-eyebrow {
+    margin-top: 2px;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.96);
+    padding: 5px 10px;
+    color: var(--plan-start);
+    font-size: 10px;
+    font-weight: 950;
+    letter-spacing: 0.08em;
+    line-height: 1;
+    text-transform: uppercase;
+    box-shadow: 0 8px 18px rgba(15, 23, 42, 0.08);
 }
 
-.plan-icon {
+.plan-art-copy small {
+    color: rgba(255, 255, 255, 0.94);
+    font-size: 9px;
+    font-weight: 900;
+    letter-spacing: 0.08em;
+    line-height: 1;
+    text-transform: uppercase;
+}
+
+.plan-art-card {
+    position: absolute;
+    z-index: 2;
+    right: 12px;
+    bottom: 12px;
+    left: 12px;
+}
+
+.plan-art-brand {
+    display: none;
+}
+
+.plan-art-panel {
     display: grid;
-    width: 42px;
-    height: 42px;
+    height: 30%;
+    min-height: 96px;
+    max-height: 126px;
     place-items: center;
-    border-radius: 13px;
-    background: #ecfdf5;
-    color: #10b981;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.97);
+    box-shadow:
+        inset 0 0 0 1px rgba(191, 219, 254, 0.72),
+        0 16px 32px rgba(15, 23, 42, 0.12);
 }
 
-.popular .plan-icon {
-    background: #eff6ff;
-    color: #2563eb;
+.plan-art-logo {
+    position: relative;
+    display: grid;
+    width: 78px;
+    height: 78px;
+    place-items: center;
+    border-radius: 999px;
+    color: var(--plan-start);
+}
+
+.plan-art-logo::before {
+    position: absolute;
+    inset: 6px;
+    border: 6px solid var(--plan-start);
+    border-right-color: var(--plan-end);
+    border-bottom-color: var(--plan-mid);
+    border-left-color: rgba(244, 63, 94, 0.88);
+    border-radius: 999px;
+    opacity: 0.9;
+    transform: rotate(-22deg);
+    content: '';
+}
+
+.plan-art-logo svg {
+    position: relative;
+    z-index: 1;
+    filter: drop-shadow(0 5px 10px rgba(15, 23, 42, 0.18));
+    transform: translateX(2px);
+}
+
+.plan-body {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.plan-meta h3 {
+    margin-top: 6px;
+    color: #0f172a;
+    font-size: 1.2rem;
+    font-weight: 800;
+    letter-spacing: -0.05em;
+    line-height: 1.12;
 }
 
 .plan-description {
-    min-height: 44px;
-    margin-top: 15px;
+    display: -webkit-box;
+    min-height: 54px;
+    overflow: hidden;
     color: #64748b;
-    font-size: 12px;
+    font-size: 13px;
     line-height: 1.6;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
 }
 
 .plan-price {
     display: flex;
     flex-wrap: wrap;
     align-items: baseline;
-    margin: 24px 0;
-    padding-bottom: 22px;
-    border-bottom: 1px solid #e2e8f0;
+    gap: 4px;
+    margin-top: auto;
+    padding-top: 10px;
+    border-top: 1px solid #e2e8f0;
 }
 
 .plan-price > span {
-    margin-right: 5px;
-    color: #64748b;
-    font-size: 13px;
+    color: #2563eb;
+    font-size: 14px;
+    font-weight: 700;
 }
 
 .plan-price strong {
-    font-size: 37px;
-    font-weight: 800;
+    color: #10b981;
+    font-size: 28px;
+    font-weight: 900;
     letter-spacing: -0.06em;
 }
 
 .plan-price small {
     width: 100%;
-    margin-top: 4px;
-    color: #94a3b8;
-    font-size: 10px;
+    color: #64748b;
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
 }
 
-.plan-card ul {
-    display: grid;
-    gap: 13px;
-    margin: 0 0 25px;
-    padding: 0;
-    color: #475569;
-    font-size: 12px;
-    list-style: none;
-}
-
-.plan-card li {
+.plan-actions {
     display: flex;
-    align-items: center;
-    gap: 9px;
-}
-
-.plan-card li svg {
-    flex: 0 0 auto;
-    color: #10b981;
+    width: 100%;
 }
 
 .plan-button {
     width: 100%;
-    margin-top: auto;
+    min-height: 46px;
+    border: 1px solid #10b981;
+    border-radius: 13px;
+    background: #10b981;
+    color: white;
+    padding: 0 22px;
+    box-shadow: 0 10px 24px rgba(16, 185, 129, 0.18);
+}
+
+.plan-button:hover {
+    border-color: #059669;
+    background: #059669;
+    color: white;
+    transform: translateY(-1px);
+    box-shadow: 0 14px 30px rgba(16, 185, 129, 0.24);
+}
+
+.plan-note {
+    display: inline-flex;
+    align-self: flex-start;
+    align-items: center;
+    gap: 8px;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    background: #f8fafc;
+    padding: 9px 12px;
+    color: #334155;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.plan-note span {
+    display: grid;
+    width: 20px;
+    height: 20px;
+    flex: 0 0 auto;
+    place-items: center;
+    border-radius: 999px;
+    background: #eff6ff;
+    color: #2563eb;
+}
+
+.plans-empty {
+    display: flex;
+    min-height: 260px;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    border: 1px dashed #cbd5e1;
+    border-radius: 16px;
+    background: rgba(255, 255, 255, 0.82);
+    color: #475569;
+    text-align: center;
+}
+
+.plans-empty h3 {
+    color: #0f172a;
+    font-size: 18px;
+    font-weight: 800;
+}
+
+.plans-empty p {
+    max-width: 420px;
+    color: #64748b;
+    font-size: 14px;
+    line-height: 1.6;
 }
 
 .payment-section {
@@ -2504,13 +3431,22 @@ summary:focus-visible {
         gap: 25px;
     }
 
-    .plans-grid {
-        grid-template-columns: repeat(2, 1fr);
+    .plans-toolbar {
+        flex-direction: column;
     }
 
-    .plan-card.popular,
-    .plan-card.popular:hover {
-        transform: none;
+    .plans-sort {
+        width: 100%;
+    }
+
+    .plans-sort-field {
+        width: min(100%, 380px);
+        min-width: 0;
+        margin-left: auto;
+    }
+
+    .plans-grid {
+        grid-template-columns: repeat(2, 1fr);
     }
 
     .footer-grid {
@@ -2579,6 +3515,11 @@ summary:focus-visible {
         justify-content: center;
     }
 
+    .hero-alert {
+        margin-inline: auto;
+        text-align: left;
+    }
+
     .hero-benefits {
         width: min(650px, 100%);
         margin-inline: auto;
@@ -2598,6 +3539,20 @@ summary:focus-visible {
 
     .device-list {
         justify-content: flex-start;
+    }
+
+    .plans-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .plan-card {
+        max-width: 420px;
+        margin-inline: auto;
+    }
+
+    .plans-sort-field {
+        width: 100%;
+        margin-left: 0;
     }
 
     .steps-grid,
@@ -2668,8 +3623,29 @@ summary:focus-visible {
         width: 100%;
     }
 
+    .hero-alert {
+        gap: 10px;
+        padding: 12px 13px;
+    }
+
+    .hero-alert p {
+        font-size: 12px;
+    }
+
     .hero-benefits {
         grid-template-columns: 1fr;
+    }
+
+    .plans-heading h2 {
+        font-size: 1.85rem;
+    }
+
+    .plans-benefits {
+        margin-bottom: 22px;
+    }
+
+    .plans-grid {
+        gap: 16px;
     }
 
     .media-stage {
@@ -2758,13 +3734,37 @@ summary:focus-visible {
     }
 
     .steps-grid,
-    .plans-grid,
     .benefits-grid {
         grid-template-columns: 1fr;
     }
 
+    .plans-grid {
+        grid-template-columns: 1fr;
+    }
+
     .plan-card {
-        min-height: 490px;
+        max-width: 100%;
+    }
+
+    .plan-art-wrap {
+        margin-inline: -4px;
+    }
+
+    .plan-art {
+        aspect-ratio: 0.9;
+    }
+
+    .plan-art-copy {
+        padding-top: 52px;
+    }
+
+    .plan-art-panel {
+        min-height: 92px;
+    }
+
+    .plan-status-chip {
+        font-size: 8px;
+        padding-inline: 8px;
     }
 
     .payment-section {

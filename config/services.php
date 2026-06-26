@@ -35,4 +35,18 @@ return [
         ],
     ],
 
+    'whmcs' => [
+        'api_url' => env('WHMCS_API_URL'),
+        'api_identifier' => env('WHMCS_API_IDENTIFIER'),
+        'api_secret' => env('WHMCS_API_SECRET'),
+        'allowed_ips' => env('WHMCS_ALLOWED_IPS'),
+        'hmac_secret' => env('WHMCS_HMAC_SECRET'),
+    ],
+
+    'google' => [
+        'client_id' => env('GOOGLE_CLIENT_ID'),
+        'client_secret' => env('GOOGLE_CLIENT_SECRET'),
+        'redirect' => env('GOOGLE_REDIRECT_URI', '/auth/google/callback'),
+    ],
+
 ];
